@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Loader2, ArrowLeft, Plus } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
 import { useToast } from "@/components/ui/use-toast"
+import { assignSubjectsToStudent } from "@/lib/subject-assignment"
 
 const addStudentSchema = z.object({
   student_ids: z.array(z.string()).min(1, { message: "Please select at least one student" }),
@@ -138,20 +139,35 @@ export default function AddStudentToClassPage({ params }: { params: { id: string
       const classId = params.id
 
       // Prepare student class assignments
-      const studentClassAssignments = data.student_ids.map((studentId) => ({
-        student_id: Number(studentId),
-        class_id: Number(classId),
-        grade_id: classData.grade_id,
-        academic_year: classData.academic_year,
-        status: "active",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }))
+      const studentClassAssignments = data.student_ids.map(async (studentId) => {
+        const selectedStudent = availableStudents.find((s) => s.id.toString() === studentId)
+        if (!selectedStudent) {
+          toast({
+            title: "Error",
+            description: `Student with ID ${studentId} not found.`,
+            variant: "destructive",
+          })
+          return
+        }
 
-      // Insert student class assignments
-      const { error: insertError } = await supabase.from("student_classes").insert(studentClassAssignments)
+        // Add student to class
+        const { error: assignmentError } = await supabase.from("student_classes").insert({
+          student_id: selectedStudent.id,
+          class_id: Number(params.id),
+          grade_id: classData.grade_id,
+          academic_year: classData.academic_year,
+          status: "active",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
 
-      if (insertError) throw insertError
+        if (assignmentError) throw assignmentError
+
+        // Auto-assign subjects based on class and grade
+        await assignSubjectsToStudent(supabase, selectedStudent.id, Number(params.id))
+      })
+
+      await Promise.all(studentClassAssignments)
 
       // Create notification
       await supabase.from("notifications").insert({

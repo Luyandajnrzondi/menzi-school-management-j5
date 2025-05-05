@@ -17,6 +17,10 @@ import {
   BarChart,
   Menu,
   Calendar,
+  CalendarDays,
+  Award,
+  UserCheck,
+  Layers,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -60,7 +64,7 @@ export function Sidebar({ user }: SidebarProps) {
     router.push("/login")
   }
 
-  const getMenuItems = () => {
+  const getMenuItemsOld = () => {
     switch (user.role) {
       case "admin":
         return [
@@ -125,6 +129,72 @@ export function Sidebar({ user }: SidebarProps) {
     }
   }
 
+  const getMenuItems = () => {
+    let navigationItems = []
+    switch (user.role) {
+      case "admin":
+        navigationItems = [
+          { name: "Dashboard", href: "/admin/dashboard", icon: Home },
+          { name: "Applications", href: "/admin/applications", icon: ClipboardList },
+          { name: "Students", href: "/admin/students", icon: GraduationCap },
+          { name: "Teachers", href: "/admin/teachers", icon: Users },
+          { name: "Classes", href: "/admin/classes", icon: Layers },
+          { name: "Subjects", href: "/admin/subjects", icon: BookOpen },
+          { name: "Notifications", href: "/admin/notifications", icon: Bell },
+          { name: "Settings", href: "/admin/settings", icon: Settings },
+          { name: "Timetables", href: "/admin/timetables", icon: Calendar },
+        ]
+        break
+      case "teacher":
+        navigationItems = [
+          { name: "Dashboard", href: "/teacher/dashboard", icon: Home },
+          { name: "My Classes", href: "/teacher/my-classes", icon: Users },
+          { name: "My Subjects", href: "/teacher/my-subjects", icon: BookOpen },
+          { name: "Enter Marks", href: "/teacher/marks", icon: FileText },
+          { name: "Attendance", href: "/teacher/attendance", icon: ClipboardList },
+          { name: "Learning Materials", href: "/teacher/learning-materials", icon: BookOpen },
+          { name: "Notifications", href: "/teacher/notifications", icon: Bell },
+          { name: "Settings", href: "/teacher/settings", icon: Settings },
+          { name: "Timetable", href: "/timetables", icon: Calendar },
+        ]
+        break
+      case "student":
+        navigationItems = [
+          { name: "Dashboard", href: "/dashboard", icon: Home },
+          { name: "My Profile", href: "/my-profile", icon: User },
+          { name: "My Class", href: "/my-class", icon: Users },
+          { name: "My Subjects", href: "/my-subjects", icon: BookOpen },
+          { name: "Learning Materials", href: "/learning-materials", icon: BookOpen },
+          { name: "Results", href: "/results", icon: FileText },
+          { name: "Notifications", href: "/notifications", icon: Bell },
+          { name: "Settings", href: "/settings", icon: Settings },
+          { name: "Timetable", href: "/timetables", icon: Calendar },
+        ]
+        break
+      case "principal":
+        navigationItems = [
+          { name: "Dashboard", href: "/principal/dashboard", icon: Home },
+          { name: "School Performance", href: "/principal/school-performance", icon: BarChart },
+          { name: "Teacher Performance", href: "/principal/teacher-performance", icon: UserCheck },
+          { name: "Top Students", href: "/principal/top-students", icon: Award },
+          { name: "Applications", href: "/admin/applications", icon: ClipboardList },
+          { name: "Students", href: "/admin/students", icon: GraduationCap },
+          { name: "Teachers", href: "/admin/teachers", icon: Users },
+          { name: "Classes", href: "/admin/classes", icon: Layers },
+          { name: "Subjects", href: "/admin/subjects", icon: BookOpen },
+          { name: "Timetables", href: "/admin/timetables", icon: Calendar },
+          { name: "Events", href: "/admin/events", icon: CalendarDays },
+          { name: "Notifications", href: "/admin/notifications", icon: Bell },
+          { name: "Settings", href: "/settings", icon: Settings },
+          { name: "Logout", href: "/logout", icon: LogOut },
+        ]
+        break
+      default:
+        navigationItems = []
+    }
+    return navigationItems
+  }
+
   // Desktop sidebar
   const DesktopSidebar = (
     <div className="flex flex-col h-full bg-gray-100 border-r">
@@ -162,7 +232,7 @@ export function Sidebar({ user }: SidebarProps) {
               )}
             >
               <item.icon className="h-5 w-5" />
-              <span>{item.label}</span>
+              <span>{item.name}</span>
             </Link>
           ))}
         </nav>

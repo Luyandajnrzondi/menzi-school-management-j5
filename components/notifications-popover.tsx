@@ -42,25 +42,29 @@ export function NotificationsPopover() {
   const fetchNotifications = async () => {
     setIsLoading(true)
     try {
-      // Get user from localStorage, safely
-      const userString = localStorage.getItem("user")
-      const user = userString ? JSON.parse(userString) : null
-      const userId = user?.id
+      let user = null
+      try {
+        const userData = localStorage.getItem("user")
+        if (userData) {
+          user = JSON.parse(userData)
+        }
+      } catch (e) {
+        console.error("Error parsing user data:", e)
+      }
 
       let query = supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(10)
 
-      // Only add the user_id condition if we have a valid user ID
-      if (userId) {
-        query = query.or(`user_id.is.null,user_id.eq.${userId}`)
+      // Only filter by user_id if we have a valid user ID
+      if (user && user.id) {
+        query = query.or(`user_id.is.null,user_id.eq.${user.id}`)
       } else {
-        // If no user ID, only fetch public notifications
-        query = query.is("user_id", null)
+        // If no user ID, only get public notifications
+        query = query.filter("user_id", "is", null)
       }
 
       const { data, error } = await query
 
       if (error) throw error
-
       setNotifications(data || [])
       setUnreadCount(data?.filter((n) => !n.is_read).length || 0)
     } catch (error) {
@@ -95,27 +99,28 @@ export function NotificationsPopover() {
 
   const markAllAsRead = async () => {
     try {
-      // Get user from localStorage, safely
-      const userString = localStorage.getItem("user")
-      const user = userString ? JSON.parse(userString) : null
-      const userId = user?.id
-
-      let query = supabase.from("notifications").update({ is_read: true }).eq("is_read", false)
-
-      // Only add the user_id condition if we have a valid user ID
-      if (userId) {
-        query = query.or(`user_id.is.null,user_id.eq.${userId}`)
-      } else {
-        // If no user ID, only update public notifications
-        query = query.is("user_id", null)
+      let user = null
+      try {
+        const userData = localStorage.getItem("user")
+        if (userData) {
+          user = JSON.parse(userData)
+        }
+      } catch (e) {
+        console.error("Error parsing user data:", e)
       }
 
-      const { error } = await query
+      // Only proceed if we have a valid user ID
+      if (user && user.id) {
+        const { error } = await supabase
+          .from("notifications")
+          .update({ is_read: true })
+          .or(`user_id.is.null,user_id.eq.${user.id}`)
 
-      if (error) throw error
+        if (error) throw error
 
-      setNotifications(notifications.map((n) => ({ ...n, is_read: true })))
-      setUnreadCount(0)
+        // Update local state
+        setNotifications((prev) => prev.map((notification) => ({ ...notification, is_read: true })))
+      }
 
       toast({
         title: "Success",

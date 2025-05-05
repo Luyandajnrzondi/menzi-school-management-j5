@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Loader2, Save, ArrowLeft } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
 import { useToast } from "@/components/ui/use-toast"
+import { assignSubjectsToStudent } from "@/lib/subject-assignment"
 
 const studentSchema = z.object({
   first_name: z.string().min(2, { message: "First name must be at least 2 characters" }),
@@ -162,6 +163,9 @@ export default function AddStudentPage() {
         })
 
         if (classAssignmentError) throw classAssignmentError
+
+        // Auto-assign subjects based on class and grade
+        await assignSubjectsToStudent(supabase, studentData[0].id, Number(data.class_id))
       }
 
       toast({

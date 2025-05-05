@@ -5,12 +5,28 @@ import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { BarChart, LineChart, PieChart } from "lucide-react"
+import { BarChart, LineChart, PieChart, Loader2 } from "lucide-react"
+import { supabase } from "@/lib/supabase/client"
+import { useToast } from "@/components/ui/use-toast"
 
 export default function PrincipalDashboardPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [dashboardData, setDashboardData] = useState({
+    totalStudents: 0,
+    totalTeachers: 0,
+    averagePerformance: 0,
+    gradePerformance: {},
+    academicStats: {
+      bachelorPasses: 0,
+      diplomaPasses: 0,
+      higherCertificate: 0,
+      failed: 0,
+      distinctions: 0,
+    },
+  })
 
   useEffect(() => {
     // Check if user is logged in
@@ -30,11 +46,108 @@ export default function PrincipalDashboardPage() {
     }
 
     setUser(parsedUser)
-    setIsLoading(false)
+    fetchDashboardData()
   }, [router])
 
+  const fetchDashboardData = async () => {
+    try {
+      // Fetch total number of students
+      const { count: studentCount, error: studentError } = await supabase
+        .from("students")
+        .select("*", { count: "exact", head: true })
+
+      if (studentError) throw studentError
+
+      // Fetch total number of teachers
+      const { count: teacherCount, error: teacherError } = await supabase
+        .from("teachers")
+        .select("*", { count: "exact", head: true })
+
+      if (teacherError) throw teacherError
+
+      // Fetch average marks for all students
+      const { data: marksData, error: marksError } = await supabase.from("marks").select("mark")
+
+      if (marksError) throw marksError
+
+      let averageMark = 0
+      if (marksData && marksData.length > 0) {
+        const sum = marksData.reduce((acc, curr) => acc + (curr.mark || 0), 0)
+        averageMark = Math.round((sum / marksData.length) * 100) / 100
+      }
+
+      // Calculate pass statistics (this is simplified - you would need to adapt to your specific schema)
+      const { data: bachelorData, error: bachelorError } = await supabase
+        .from("marks")
+        .select("count", { count: "exact", head: true })
+        .gt("mark", 79.9)
+
+      if (bachelorError) throw bachelorError
+
+      const { data: diplomaData, error: diplomaError } = await supabase
+        .from("marks")
+        .select("count", { count: "exact", head: true })
+        .gt("mark", 69.9)
+        .lt("mark", 80)
+
+      if (diplomaError) throw diplomaError
+
+      const { data: certificateData, error: certificateError } = await supabase
+        .from("marks")
+        .select("count", { count: "exact", head: true })
+        .gt("mark", 49.9)
+        .lt("mark", 70)
+
+      if (certificateError) throw certificateError
+
+      const { data: failData, error: failError } = await supabase
+        .from("marks")
+        .select("count", { count: "exact", head: true })
+        .lt("mark", 50)
+
+      if (failError) throw failError
+
+      // Count distinctions (marks above 75%)
+      const { count: distinctionCount, error: distinctionError } = await supabase
+        .from("marks")
+        .select("*", { count: "exact", head: true })
+        .gt("mark", 74.9)
+
+      if (distinctionError) throw distinctionError
+
+      setDashboardData({
+        totalStudents: studentCount || 0,
+        totalTeachers: teacherCount || 0,
+        averagePerformance: averageMark || 0,
+        gradePerformance: {}, // This would require more complex queries
+        academicStats: {
+          bachelorPasses: bachelorData?.count || 0,
+          diplomaPasses: diplomaData?.count || 0,
+          higherCertificate: certificateData?.count || 0,
+          failed: failData?.count || 0,
+          distinctions: distinctionCount || 0,
+        },
+      })
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load dashboard data. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   if (isLoading) {
-    return <div>Loading...</div>
+    return (
+      <DashboardLayout user={user}>
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
@@ -48,7 +161,7 @@ export default function PrincipalDashboardPage() {
               <CardTitle className="text-lg">Total Students</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">450</p>
+              <p className="text-3xl font-bold">{dashboardData.totalStudents}</p>
               <p className="text-sm text-gray-500">Across all grades</p>
             </CardContent>
           </Card>
@@ -58,7 +171,7 @@ export default function PrincipalDashboardPage() {
               <CardTitle className="text-lg">Total Teachers</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">35</p>
+              <p className="text-3xl font-bold">{dashboardData.totalTeachers}</p>
               <p className="text-sm text-gray-500">Across all departments</p>
             </CardContent>
           </Card>
@@ -68,7 +181,7 @@ export default function PrincipalDashboardPage() {
               <CardTitle className="text-lg">Average Performance</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">72%</p>
+              <p className="text-3xl font-bold">{dashboardData.averagePerformance}%</p>
               <p className="text-sm text-gray-500">School-wide average</p>
             </CardContent>
           </Card>
@@ -82,6 +195,7 @@ export default function PrincipalDashboardPage() {
             </CardHeader>
             <CardContent className="h-80 flex items-center justify-center">
               <BarChart className="h-64 w-64 text-gray-300" />
+              <p className="text-sm text-gray-500 absolute">Data visualization coming soon</p>
             </CardContent>
           </Card>
 
@@ -92,6 +206,7 @@ export default function PrincipalDashboardPage() {
             </CardHeader>
             <CardContent className="h-80 flex items-center justify-center">
               <LineChart className="h-64 w-64 text-gray-300" />
+              <p className="text-sm text-gray-500 absolute">Data visualization coming soon</p>
             </CardContent>
           </Card>
         </div>
@@ -127,25 +242,25 @@ export default function PrincipalDashboardPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="bg-gray-100 p-4 rounded-lg">
                           <p className="text-sm text-gray-500">Bachelor Passes</p>
-                          <p className="text-2xl font-bold">65%</p>
+                          <p className="text-2xl font-bold">{dashboardData.academicStats.bachelorPasses}</p>
                         </div>
                         <div className="bg-gray-100 p-4 rounded-lg">
                           <p className="text-sm text-gray-500">Diploma Passes</p>
-                          <p className="text-2xl font-bold">25%</p>
+                          <p className="text-2xl font-bold">{dashboardData.academicStats.diplomaPasses}</p>
                         </div>
                         <div className="bg-gray-100 p-4 rounded-lg">
                           <p className="text-sm text-gray-500">Higher Certificate</p>
-                          <p className="text-2xl font-bold">8%</p>
+                          <p className="text-2xl font-bold">{dashboardData.academicStats.higherCertificate}</p>
                         </div>
                         <div className="bg-gray-100 p-4 rounded-lg">
                           <p className="text-sm text-gray-500">Failed</p>
-                          <p className="text-2xl font-bold">2%</p>
+                          <p className="text-2xl font-bold">{dashboardData.academicStats.failed}</p>
                         </div>
                       </div>
 
                       <div className="bg-gray-100 p-4 rounded-lg">
                         <p className="text-sm text-gray-500">Distinctions</p>
-                        <p className="text-2xl font-bold">120</p>
+                        <p className="text-2xl font-bold">{dashboardData.academicStats.distinctions}</p>
                         <p className="text-sm text-gray-500">Across all subjects</p>
                       </div>
                     </div>

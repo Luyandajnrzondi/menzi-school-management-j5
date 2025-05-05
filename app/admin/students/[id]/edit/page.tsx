@@ -19,6 +19,7 @@ import { supabase } from "@/lib/supabase/client"
 import { useToast } from "@/components/ui/use-toast"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { assignSubjectsToStudent } from "@/lib/subject-assignment"
 
 const studentSchema = z.object({
   first_name: z.string().min(2, { message: "First name must be at least 2 characters" }),
@@ -285,6 +286,9 @@ export default function EditStudentPage() {
           })
 
           if (classAssignmentError) throw classAssignmentError
+
+          // Auto-assign subjects based on class and grade
+          await assignSubjectsToStudent(supabase, Number(studentId), Number(data.class_id))
         }
       }
 
