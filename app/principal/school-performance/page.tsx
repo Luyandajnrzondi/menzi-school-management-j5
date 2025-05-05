@@ -51,52 +51,109 @@ export default function SchoolPerformancePage() {
     try {
       setIsLoading(true)
 
-      // Define base query
-      let query = supabase.from("marks").select(`
+      // First, get all marks with basic filtering
+      let marksQuery = supabase.from("marks").select(`
+        id,
         mark,
         term,
         academic_year,
-        subjects(id, name),
-        students(id, first_name, last_name),
-        student_classes(
-          classes(
-            name,
-            grade_id,
-            grades(name)
-          )
-        )
+        student_id,
+        subject_id
       `)
 
       // Add filters
-      query = query.eq("academic_year", selectedYear)
+      marksQuery = marksQuery.eq("academic_year", selectedYear)
       if (selectedTerm !== "all") {
-        query = query.eq("term", selectedTerm)
+        marksQuery = marksQuery.eq("term", selectedTerm)
       }
 
-      // Execute query
-      const { data, error } = await query
+      // Execute marks query
+      const { data: marksData, error: marksError } = await marksQuery
 
-      if (error) throw error
+      if (marksError) throw marksError
 
-      // Process data
-      if (data && data.length > 0) {
+      // Get all subjects for reference
+      const { data: subjectsData, error: subjectsError } = await supabase.from("subjects").select("id, name")
+
+      if (subjectsError) throw subjectsError
+
+      // Create a subject lookup map
+      const subjectMap = new Map()
+      subjectsData.forEach((subject) => {
+        subjectMap.set(subject.id, subject.name)
+      })
+
+      // Get all students and their classes/grades
+      const { data: studentsData, error: studentsError } = await supabase.from("students").select(`
+          id,
+          class_id
+        `)
+
+      if (studentsError) throw studentsError
+
+      // Get all classes with their grades
+      const { data: classesData, error: classesError } = await supabase.from("classes").select(`
+          id,
+          grade_id
+        `)
+
+      if (classesError) throw classesError
+
+      // Create a class lookup map
+      const classMap = new Map()
+      classesData.forEach((cls) => {
+        classMap.set(cls.id, cls.grade_id)
+      })
+
+      // Get all grades
+      const { data: gradesData, error: gradesError } = await supabase.from("grades").select(`
+          id,
+          name
+        `)
+
+      if (gradesError) throw gradesError
+
+      // Create a grade lookup map
+      const gradeMap = new Map()
+      gradesData.forEach((grade) => {
+        gradeMap.set(grade.id, grade.name)
+      })
+
+      // Create a student-to-grade map
+      const studentGradeMap = new Map()
+      studentsData.forEach((student) => {
+        const classId = student.class_id
+        if (classId) {
+          const gradeId = classMap.get(classId)
+          if (gradeId) {
+            const gradeName = gradeMap.get(gradeId)
+            if (gradeName) {
+              studentGradeMap.set(student.id, gradeName)
+            }
+          }
+        }
+      })
+
+      // Process marks data
+      if (marksData && marksData.length > 0) {
         // Calculate overall average
-        const sum = data.reduce((acc, curr) => acc + (curr.mark || 0), 0)
-        const overallAverage = Math.round((sum / data.length) * 100) / 100
+        const sum = marksData.reduce((acc, curr) => acc + (curr.mark || 0), 0)
+        const overallAverage = Math.round((sum / marksData.length) * 100) / 100
 
         // Group by grade to calculate grade averages
-        const gradeGroups = data.reduce(
-          (acc, curr) => {
-            const gradeName = curr.student_classes?.classes?.grades?.name || "Unknown"
-            if (!acc[gradeName]) {
-              acc[gradeName] = { sum: 0, count: 0 }
-            }
-            acc[gradeName].sum += curr.mark || 0
-            acc[gradeName].count += 1
-            return acc
-          },
-          {} as Record<string, { sum: number; count: number }>,
-        )
+        const gradeGroups: Record<string, { sum: number; count: number }> = {}
+
+        marksData.forEach((mark) => {
+          const studentId = mark.student_id
+          const gradeName = studentGradeMap.get(studentId) || "Unknown"
+
+          if (!gradeGroups[gradeName]) {
+            gradeGroups[gradeName] = { sum: 0, count: 0 }
+          }
+
+          gradeGroups[gradeName].sum += mark.mark || 0
+          gradeGroups[gradeName].count += 1
+        })
 
         const gradeAverages = Object.entries(gradeGroups)
           .map(([grade, data]) => ({
@@ -106,18 +163,19 @@ export default function SchoolPerformancePage() {
           .sort((a, b) => a.grade.localeCompare(b.grade))
 
         // Group by subject to calculate subject averages
-        const subjectGroups = data.reduce(
-          (acc, curr) => {
-            const subjectName = curr.subjects?.name || "Unknown"
-            if (!acc[subjectName]) {
-              acc[subjectName] = { sum: 0, count: 0 }
-            }
-            acc[subjectName].sum += curr.mark || 0
-            acc[subjectName].count += 1
-            return acc
-          },
-          {} as Record<string, { sum: number; count: number }>,
-        )
+        const subjectGroups: Record<string, { sum: number; count: number }> = {}
+
+        marksData.forEach((mark) => {
+          const subjectId = mark.subject_id
+          const subjectName = subjectMap.get(subjectId) || "Unknown"
+
+          if (!subjectGroups[subjectName]) {
+            subjectGroups[subjectName] = { sum: 0, count: 0 }
+          }
+
+          subjectGroups[subjectName].sum += mark.mark || 0
+          subjectGroups[subjectName].count += 1
+        })
 
         const subjectAverages = Object.entries(subjectGroups)
           .map(([subject, data]) => ({
@@ -127,8 +185,8 @@ export default function SchoolPerformancePage() {
           .sort((a, b) => b.average - a.average)
 
         // Calculate pass/fail
-        const passed = data.filter((mark) => mark.mark >= 50).length
-        const failed = data.length - passed
+        const passed = marksData.filter((mark) => mark.mark >= 50).length
+        const failed = marksData.length - passed
 
         setPerformanceData({
           overallAverage,
@@ -272,7 +330,7 @@ export default function SchoolPerformancePage() {
                             <div className="h-4 bg-gray-100 rounded-full overflow-hidden">
                               <div
                                 className="h-full bg-primary rounded-full"
-                                style={{ width: `${grade.average}%` }}
+                                style={{ width: `${Math.min(grade.average, 100)}%` }}
                               ></div>
                             </div>
                           </div>
@@ -305,7 +363,7 @@ export default function SchoolPerformancePage() {
                             <div className="h-4 bg-gray-100 rounded-full overflow-hidden">
                               <div
                                 className="h-full bg-primary rounded-full"
-                                style={{ width: `${subject.average}%` }}
+                                style={{ width: `${Math.min(subject.average, 100)}%` }}
                               ></div>
                             </div>
                           </div>

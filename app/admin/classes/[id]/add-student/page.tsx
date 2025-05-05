@@ -1,41 +1,28 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Form } from "@/components/ui/form"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Loader2, ArrowLeft, Plus } from "lucide-react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase/client"
+import { assignSubjectsBasedOnClass } from "@/lib/subject-assignment"
+import { Loader2 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-import { assignSubjectsToStudent } from "@/lib/subject-assignment"
-
-const addStudentSchema = z.object({
-  student_ids: z.array(z.string()).min(1, { message: "Please select at least one student" }),
-})
 
 export default function AddStudentToClassPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const { toast } = useToast()
   const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [classData, setClassData] = useState<any>(null)
-  const [availableStudents, setAvailableStudents] = useState<any[]>([])
-  const [selectedStudents, setSelectedStudents] = useState<string[]>([])
-
-  const form = useForm<z.infer<typeof addStudentSchema>>({
-    resolver: zodResolver(addStudentSchema),
-    defaultValues: {
-      student_ids: [],
-    },
-  })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [classDetails, setClassDetails] = useState<any>(null)
+  const [students, setStudents] = useState<any[]>([])
+  const [selectedStudent, setSelectedStudent] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
 
   useEffect(() => {
     // Check if user is logged in
@@ -48,153 +35,105 @@ export default function AddStudentToClassPage({ params }: { params: { id: string
 
     const parsedUser = JSON.parse(storedUser)
 
-    // Check if user is admin or principal
-    if (parsedUser.role !== "admin" && parsedUser.role !== "principal") {
+    // Check if user is admin
+    if (parsedUser.role !== "admin") {
       router.push("/dashboard")
       return
     }
 
     setUser(parsedUser)
-    fetchData()
-  }, [router, params])
+    fetchClassDetails()
+    fetchStudents()
+  }, [router, params.id])
 
-  const fetchData = async () => {
+  const fetchClassDetails = async () => {
     try {
-      const classId = params.id
+      const { data, error } = await supabase.from("classes").select("*, grades(id, name)").eq("id", params.id).single()
 
-      // Fetch class details
-      const { data: classDetails, error: classError } = await supabase
-        .from("classes")
-        .select(`
-          *,
-          grades(id, name)
-        `)
-        .eq("id", classId)
-        .single()
+      if (error) throw error
 
-      if (classError) throw classError
-
-      setClassData(classDetails)
-
-      // Get students already in this class
-      const { data: existingStudents, error: existingStudentsError } = await supabase
-        .from("student_classes")
-        .select("student_id")
-        .eq("class_id", classId)
-        .eq("academic_year", classDetails.academic_year)
-
-      if (existingStudentsError) throw existingStudentsError
-
-      const existingStudentIds = existingStudents.map((s) => s.student_id)
-
-      // Fetch all students not already in this class
-      const { data: students, error: studentsError } = await supabase
-        .from("students")
-        .select("*")
-        .not("id", "in", `(${existingStudentIds.join(",")})`)
-        .order("last_name", { ascending: true })
-
-      if (studentsError) throw studentsError
-
-      setAvailableStudents(students || [])
+      setClassDetails(data)
     } catch (error) {
-      console.error("Error fetching data:", error)
+      console.error("Error fetching class details:", error)
       toast({
         title: "Error",
-        description: "Failed to load data. Please try again.",
+        description: "Failed to load class details. Please try again.",
         variant: "destructive",
       })
-      router.push(`/admin/classes/${params.id}`)
     } finally {
       setIsLoading(false)
     }
   }
 
-  const toggleStudent = (studentId: string) => {
-    setSelectedStudents((prev) => {
-      if (prev.includes(studentId)) {
-        return prev.filter((id) => id !== studentId)
-      } else {
-        return [...prev, studentId]
-      }
-    })
-  }
+  const fetchStudents = async () => {
+    try {
+      // Get students who are not assigned to any class
+      const { data, error } = await supabase.from("students").select("*").is("class_id", null)
 
-  useEffect(() => {
-    form.setValue("student_ids", selectedStudents)
-  }, [selectedStudents, form])
+      if (error) throw error
 
-  const onSubmit = async (data: z.infer<typeof addStudentSchema>) => {
-    if (data.student_ids.length === 0) {
+      setStudents(data || [])
+    } catch (error) {
+      console.error("Error fetching students:", error)
       toast({
         title: "Error",
-        description: "Please select at least one student.",
+        description: "Failed to load students. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleAddStudent = async () => {
+    if (!selectedStudent) {
+      toast({
+        title: "Error",
+        description: "Please select a student.",
         variant: "destructive",
       })
       return
     }
 
-    setIsSaving(true)
     try {
-      const classId = params.id
+      setIsSubmitting(true)
 
-      // Prepare student class assignments
-      const studentClassAssignments = data.student_ids.map(async (studentId) => {
-        const selectedStudent = availableStudents.find((s) => s.id.toString() === studentId)
-        if (!selectedStudent) {
-          toast({
-            title: "Error",
-            description: `Student with ID ${studentId} not found.`,
-            variant: "destructive",
-          })
-          return
-        }
+      // Update student's class
+      const { error } = await supabase.from("students").update({ class_id: params.id }).eq("id", selectedStudent)
 
-        // Add student to class
-        const { error: assignmentError } = await supabase.from("student_classes").insert({
-          student_id: selectedStudent.id,
-          class_id: Number(params.id),
-          grade_id: classData.grade_id,
-          academic_year: classData.academic_year,
-          status: "active",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+      if (error) throw error
+
+      // Assign subjects based on class and grade
+      if (classDetails && classDetails.grades) {
+        await assignSubjectsBasedOnClass({
+          studentId: selectedStudent,
+          classId: params.id,
+          gradeId: classDetails.grades.id,
         })
-
-        if (assignmentError) throw assignmentError
-
-        // Auto-assign subjects based on class and grade
-        await assignSubjectsToStudent(supabase, selectedStudent.id, Number(params.id))
-      })
-
-      await Promise.all(studentClassAssignments)
-
-      // Create notification
-      await supabase.from("notifications").insert({
-        title: "Students Added to Class",
-        message: `${data.student_ids.length} student(s) have been added to ${classData.grades.name} ${classData.name}.`,
-        notification_type: "class",
-        is_read: false,
-        created_at: new Date().toISOString(),
-      })
+      }
 
       toast({
         title: "Success",
-        description: `${data.student_ids.length} student(s) have been added to the class.`,
+        description: "Student added to class successfully.",
       })
 
-      router.push(`/admin/classes/${classId}`)
+      // Refresh students list
+      fetchStudents()
+      setSelectedStudent("")
     } catch (error) {
-      console.error("Error adding students:", error)
+      console.error("Error adding student to class:", error)
       toast({
         title: "Error",
-        description: "Failed to add students to class. Please try again.",
+        description: "Failed to add student to class. Please try again.",
         variant: "destructive",
       })
     } finally {
-      setIsSaving(false)
+      setIsSubmitting(false)
     }
   }
+
+  const filteredStudents = students.filter((student) => {
+    const fullName = `${student.first_name} ${student.last_name}`.toLowerCase()
+    return fullName.includes(searchQuery.toLowerCase())
+  })
 
   if (isLoading) {
     return (
@@ -209,115 +148,62 @@ export default function AddStudentToClassPage({ params }: { params: { id: string
   return (
     <DashboardLayout user={user}>
       <div className="p-6">
-        <div className="flex items-center mb-6">
-          <Button variant="outline" size="sm" onClick={() => router.back()} className="mr-4">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <h1 className="text-2xl font-bold">Add Students to Class</h1>
-        </div>
+        <h1 className="text-2xl font-bold mb-6">Add Student to Class</h1>
 
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Class Information</CardTitle>
+            <CardTitle>Class Details</CardTitle>
+            <CardDescription>
+              Adding student to {classDetails?.name} - {classDetails?.grades?.name}
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Class</p>
-              <p className="font-medium">
-                {classData?.grades?.name} {classData?.name}
-              </p>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="search">Search Students</Label>
+                <Input
+                  id="search"
+                  placeholder="Search by name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="student">Select Student</Label>
+                <Select value={selectedStudent} onValueChange={setSelectedStudent}>
+                  <SelectTrigger id="student">
+                    <SelectValue placeholder="Select a student" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredStudents.length > 0 ? (
+                      filteredStudents.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.first_name} {student.last_name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="none" disabled>
+                        No unassigned students found
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button onClick={handleAddStudent} disabled={isSubmitting || !selectedStudent}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Adding...
+                  </>
+                ) : (
+                  "Add Student to Class"
+                )}
+              </Button>
             </div>
           </CardContent>
         </Card>
-
-        {availableStudents.length > 0 ? (
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)}>
-              <Card>
-                <CardHeader>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <CardTitle>Available Students</CardTitle>
-                      <CardDescription>Select students to add to this class</CardDescription>
-                    </div>
-                    <div className="flex items-center">
-                      <span className="mr-2 text-sm font-medium">
-                        Selected: {selectedStudents.length} / {availableStudents.length}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (selectedStudents.length === availableStudents.length) {
-                            setSelectedStudents([])
-                          } else {
-                            setSelectedStudents(availableStudents.map((s) => s.id.toString()))
-                          }
-                        }}
-                      >
-                        {selectedStudents.length === availableStudents.length ? "Deselect All" : "Select All"}
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="py-3 px-4 text-left w-16">Select</th>
-                          <th className="py-3 px-4 text-left">Student ID</th>
-                          <th className="py-3 px-4 text-left">Name</th>
-                          <th className="py-3 px-4 text-left">Gender</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {availableStudents.map((student) => (
-                          <tr key={student.id} className="border-b hover:bg-gray-50">
-                            <td className="py-3 px-4">
-                              <Checkbox
-                                checked={selectedStudents.includes(student.id.toString())}
-                                onCheckedChange={() => toggleStudent(student.id.toString())}
-                              />
-                            </td>
-                            <td className="py-3 px-4">{student.student_id}</td>
-                            <td className="py-3 px-4">
-                              {student.first_name} {student.last_name}
-                            </td>
-                            <td className="py-3 px-4 capitalize">{student.gender}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="mt-6 flex justify-between">
-                <Button type="button" variant="outline" onClick={() => router.back()}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isSaving || selectedStudents.length === 0}>
-                  {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                  Add {selectedStudents.length} Student{selectedStudents.length !== 1 ? "s" : ""} to Class
-                </Button>
-              </div>
-            </form>
-          </Form>
-        ) : (
-          <Card>
-            <CardContent className="p-6">
-              <div className="text-center">
-                <p className="mb-4 text-gray-500">No available students found.</p>
-                <Button asChild>
-                  <Link href="/admin/students/add">Add New Student</Link>
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </DashboardLayout>
   )

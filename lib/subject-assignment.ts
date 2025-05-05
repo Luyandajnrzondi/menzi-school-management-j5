@@ -1,13 +1,63 @@
-// Function to automatically assign subjects based on class and grade
-export const assignSubjectsToStudent = async (supabase: any, studentId: number, classId: number) => {
+interface SubjectAssignmentOptions {
+  studentId: number
+  classId: number
+}
+
+export async function assignSubjectsToStudent(supabaseClient: any, studentId: number, classId: number) {
+  try {
+    // First, get the class details to determine the grade
+    const { data: classData, error: classError } = await supabaseClient
+      .from("classes")
+      .select("grade_id")
+      .eq("id", classId)
+      .single()
+
+    if (classError) throw classError
+    if (!classData) throw new Error("Class not found")
+
+    const gradeId = classData.grade_id
+
+    // Get the subjects applicable to the grade
+    const { data: subjectsData, error: subjectsError } = await supabaseClient
+      .from("subjects")
+      .select("id")
+      .contains("applicable_grades", [gradeId])
+
+    if (subjectsError) throw subjectsError
+    if (!subjectsData || subjectsData.length === 0) {
+      console.log("No subjects found for this grade")
+      return
+    }
+
+    // Prepare student-subject assignments
+    const studentSubjects = subjectsData.map((subject) => ({
+      student_id: studentId,
+      subject_id: subject.id,
+    }))
+
+    // Insert student-subject relationships
+    const { error: insertError } = await supabaseClient.from("student_subjects").insert(studentSubjects)
+
+    if (insertError) throw insertError
+
+    console.log(`Successfully assigned ${studentSubjects.length} subjects to student ${studentId}`)
+    return true
+  } catch (error) {
+    console.error("Error assigning subjects:", error)
+    return false
+  }
+}
+
+// Adding the missing export that's being referenced elsewhere in the code
+export const assignSubjectsBasedOnClass = async (supabaseClient: any, studentId: number, classId: number) => {
   try {
     // First, get the class details
-    const { data: classData, error: classError } = await supabase
+    const { data: classData, error: classError } = await supabaseClient
       .from("classes")
       .select(`
         id,
         name,
-        grades(id, name)
+        grade_id
       `)
       .eq("id", classId)
       .single()
@@ -18,8 +68,18 @@ export const assignSubjectsToStudent = async (supabase: any, studentId: number, 
       throw new Error("Class not found")
     }
 
+    // Get grade information
+    const { data: gradeData, error: gradeError } = await supabaseClient
+      .from("grades")
+      .select("id, name")
+      .eq("id", classData.grade_id)
+      .single()
+
+    if (gradeError) throw gradeError
+    if (!gradeData) throw new Error("Grade not found")
+
     // Check if grade is 10, 11, or 12
-    const gradeName = classData.grades?.name
+    const gradeName = gradeData.name
     if (!gradeName || !gradeName.match(/^Grade (10|11|12)$/)) {
       // Not a grade 10-12, don't auto-assign subjects
       return { success: true, message: "No auto-assignment needed for this grade" }
@@ -61,7 +121,7 @@ export const assignSubjectsToStudent = async (supabase: any, studentId: number, 
     }
 
     // Get all subjects from the database
-    const { data: allSubjects, error: subjectsError } = await supabase.from("subjects").select("id, name")
+    const { data: allSubjects, error: subjectsError } = await supabaseClient.from("subjects").select("id, name")
 
     if (subjectsError) throw subjectsError
 
@@ -78,11 +138,10 @@ export const assignSubjectsToStudent = async (supabase: any, studentId: number, 
     const allSubjectsToAssign = [...compulsorySubjects, ...electiveSubjects]
 
     // Check if student already has these subjects assigned
-    const { data: existingAssignments, error: existingError } = await supabase
+    const { data: existingAssignments, error: existingError } = await supabaseClient
       .from("student_subjects")
       .select("subject_id")
       .eq("student_id", studentId)
-      .eq("academic_year", currentYear)
 
     if (existingError) throw existingError
 
@@ -101,12 +160,9 @@ export const assignSubjectsToStudent = async (supabase: any, studentId: number, 
     const assignments = subjectsToAssign.map((subjectName) => ({
       student_id: studentId,
       subject_id: subjectMap[subjectName],
-      academic_year: currentYear,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     }))
 
-    const { error: insertError } = await supabase.from("student_subjects").insert(assignments)
+    const { error: insertError } = await supabaseClient.from("student_subjects").insert(assignments)
 
     if (insertError) throw insertError
 

@@ -18,7 +18,6 @@ export default function PrincipalDashboardPage() {
     totalStudents: 0,
     totalTeachers: 0,
     averagePerformance: 0,
-    gradePerformance: {},
     academicStats: {
       bachelorPasses: 0,
       diplomaPasses: 0,
@@ -51,81 +50,58 @@ export default function PrincipalDashboardPage() {
 
   const fetchDashboardData = async () => {
     try {
-      // Fetch total number of students
+      // Fetch total number of students - simple count query
       const { count: studentCount, error: studentError } = await supabase
         .from("students")
         .select("*", { count: "exact", head: true })
 
       if (studentError) throw studentError
 
-      // Fetch total number of teachers
+      // Fetch total number of teachers - simple count query
       const { count: teacherCount, error: teacherError } = await supabase
         .from("teachers")
         .select("*", { count: "exact", head: true })
 
       if (teacherError) throw teacherError
 
-      // Fetch average marks for all students
+      // Fetch marks for average calculation - simple select query
       const { data: marksData, error: marksError } = await supabase.from("marks").select("mark")
 
       if (marksError) throw marksError
 
+      // Calculate average mark
       let averageMark = 0
       if (marksData && marksData.length > 0) {
         const sum = marksData.reduce((acc, curr) => acc + (curr.mark || 0), 0)
         averageMark = Math.round((sum / marksData.length) * 100) / 100
       }
 
-      // Calculate pass statistics (this is simplified - you would need to adapt to your specific schema)
-      const { data: bachelorData, error: bachelorError } = await supabase
-        .from("marks")
-        .select("count", { count: "exact", head: true })
-        .gt("mark", 79.9)
+      // Count marks in different ranges for academic stats
+      // Bachelor passes (80% and above)
+      const { data: bachelorData } = await supabase.from("marks").select("id").gte("mark", 80)
 
-      if (bachelorError) throw bachelorError
+      // Diploma passes (70-79%)
+      const { data: diplomaData } = await supabase.from("marks").select("id").gte("mark", 70).lt("mark", 80)
 
-      const { data: diplomaData, error: diplomaError } = await supabase
-        .from("marks")
-        .select("count", { count: "exact", head: true })
-        .gt("mark", 69.9)
-        .lt("mark", 80)
+      // Higher certificate (50-69%)
+      const { data: certificateData } = await supabase.from("marks").select("id").gte("mark", 50).lt("mark", 70)
 
-      if (diplomaError) throw diplomaError
+      // Failed (below 50%)
+      const { data: failData } = await supabase.from("marks").select("id").lt("mark", 50)
 
-      const { data: certificateData, error: certificateError } = await supabase
-        .from("marks")
-        .select("count", { count: "exact", head: true })
-        .gt("mark", 49.9)
-        .lt("mark", 70)
-
-      if (certificateError) throw certificateError
-
-      const { data: failData, error: failError } = await supabase
-        .from("marks")
-        .select("count", { count: "exact", head: true })
-        .lt("mark", 50)
-
-      if (failError) throw failError
-
-      // Count distinctions (marks above 75%)
-      const { count: distinctionCount, error: distinctionError } = await supabase
-        .from("marks")
-        .select("*", { count: "exact", head: true })
-        .gt("mark", 74.9)
-
-      if (distinctionError) throw distinctionError
+      // Distinctions (75% and above)
+      const { data: distinctionData } = await supabase.from("marks").select("id").gte("mark", 75)
 
       setDashboardData({
         totalStudents: studentCount || 0,
         totalTeachers: teacherCount || 0,
         averagePerformance: averageMark || 0,
-        gradePerformance: {}, // This would require more complex queries
         academicStats: {
-          bachelorPasses: bachelorData?.count || 0,
-          diplomaPasses: diplomaData?.count || 0,
-          higherCertificate: certificateData?.count || 0,
-          failed: failData?.count || 0,
-          distinctions: distinctionCount || 0,
+          bachelorPasses: bachelorData?.length || 0,
+          diplomaPasses: diplomaData?.length || 0,
+          higherCertificate: certificateData?.length || 0,
+          failed: failData?.length || 0,
+          distinctions: distinctionData?.length || 0,
         },
       })
     } catch (error) {
