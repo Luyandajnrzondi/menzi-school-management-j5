@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Loader2, Mail, MapPin, Calendar, User, BookOpen, ChevronLeft, ChevronRight } from "lucide-react"
+import { ArrowLeft, Loader2, Mail, MapPin, Calendar, User, BookOpen } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
 import { useToast } from "@/components/ui/use-toast"
 
@@ -20,10 +20,6 @@ export default function StudentDetailPage({ params }: { params: { id: string } }
   const [studentClasses, setStudentClasses] = useState<any[]>([])
   const [studentSubjects, setStudentSubjects] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalStudents, setTotalStudents] = useState(0)
-  const studentsPerPage = 100
 
   useEffect(() => {
     // Check if user is logged in
@@ -62,8 +58,8 @@ export default function StudentDetailPage({ params }: { params: { id: string } }
 
       setStudent(studentData)
 
-      // Fetch student classes with pagination
-      const { data: classesData, error: classesError, count } = await supabase
+      // Fetch student classes
+      const { data: classesData, error: classesError } = await supabase
         .from("student_classes")
         .select(`
           *,
@@ -74,14 +70,12 @@ export default function StudentDetailPage({ params }: { params: { id: string } }
             grades(name),
             teachers(first_name, last_name)
           )
-        `, { count: 'exact' })
+        `)
         .eq("student_id", studentData.student_id)
-        .range((currentPage - 1) * studentsPerPage, currentPage * studentsPerPage - 1)
 
       if (classesError) throw classesError
 
       setStudentClasses(classesData || [])
-      setTotalStudents(count || 0)
 
       // Fetch student subjects
       const currentYear = new Date().getFullYear()
@@ -113,20 +107,6 @@ export default function StudentDetailPage({ params }: { params: { id: string } }
       router.push("/admin/students")
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleNextPage = () => {
-    if (currentPage * studentsPerPage < totalStudents) {
-      setCurrentPage(currentPage + 1)
-      fetchStudentData()
-    }
-  }
-
-  const handlePrevPage = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1)
-      fetchStudentData()
     }
   }
 
@@ -235,60 +215,31 @@ export default function StudentDetailPage({ params }: { params: { id: string } }
                   </CardHeader>
                   <CardContent>
                     {studentClasses.length > 0 ? (
-                      <div>
-                        <div className="overflow-x-auto">
-                          <table className="w-full border-collapse">
-                            <thead>
-                              <tr className="border-b">
-                                <th className="py-3 px-4 text-left">Class</th>
-                                <th className="py-3 px-4 text-left">Grade</th>
-                                <th className="py-3 px-4 text-left">Academic Year</th>
-                                <th className="py-3 px-4 text-left">Class Teacher</th>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="py-3 px-4 text-left">Class</th>
+                              <th className="py-3 px-4 text-left">Grade</th>
+                              <th className="py-3 px-4 text-left">Academic Year</th>
+                              <th className="py-3 px-4 text-left">Class Teacher</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {studentClasses.map((classItem) => (
+                              <tr key={classItem.id} className="border-b hover:bg-gray-50">
+                                <td className="py-3 px-4">{classItem.classes?.name}</td>
+                                <td className="py-3 px-4">{classItem.classes?.grades?.name}</td>
+                                <td className="py-3 px-4">{classItem.academic_year}</td>
+                                <td className="py-3 px-4">
+                                  {classItem.classes?.teachers
+                                    ? `${classItem.classes.teachers.first_name} ${classItem.classes.teachers.last_name}`
+                                    : "Not assigned"}
+                                </td>
                               </tr>
-                            </thead>
-                            <tbody>
-                              {studentClasses.map((classItem) => (
-                                <tr key={classItem.id} className="border-b hover:bg-gray-50">
-                                  <td className="py-3 px-4">{classItem.classes?.name}</td>
-                                  <td className="py-3 px-4">{classItem.classes?.grades?.name}</td>
-                                  <td className="py-3 px-4">{classItem.academic_year}</td>
-                                  <td className="py-3 px-4">
-                                    {classItem.classes?.teachers
-                                      ? `${classItem.classes.teachers.first_name} ${classItem.classes.teachers.last_name}`
-                                      : "Not assigned"}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        {/* Pagination controls */}
-                        <div className="flex items-center justify-between mt-4">
-                          <div className="text-sm text-gray-500">
-                            Showing {(currentPage - 1) * studentsPerPage + 1} to{" "}
-                            {Math.min(currentPage * studentsPerPage, totalStudents)} of {totalStudents} classes
-                          </div>
-                          <div className="flex space-x-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={handlePrevPage}
-                              disabled={currentPage === 1}
-                            >
-                              <ChevronLeft className="h-4 w-4" />
-                              Previous
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={handleNextPage}
-                              disabled={currentPage * studentsPerPage >= totalStudents}
-                            >
-                              Next
-                              <ChevronRight className="h-4 w-4 ml-1" />
-                            </Button>
-                          </div>
-                        </div>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     ) : (
                       <p className="text-center py-4 text-gray-500">No classes found for this student</p>

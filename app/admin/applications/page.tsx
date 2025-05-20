@@ -8,11 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Eye, CheckCircle, XCircle, Loader2, Search, ChevronUp, ChevronDown } from "lucide-react"
+import { Eye, CheckCircle, XCircle, Loader2, Search } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
 import { useToast } from "@/components/ui/use-toast"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export default function AdminApplicationsPage() {
   const router = useRouter()
@@ -24,9 +23,6 @@ export default function AdminApplicationsPage() {
   const [isProcessing, setIsProcessing] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [totalApplications, setTotalApplications] = useState(0)
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null)
-  const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [averageFilter, setAverageFilter] = useState<string>("all")
 
   useEffect(() => {
     // Check if user is logged in
@@ -50,39 +46,28 @@ export default function AdminApplicationsPage() {
   }, [router])
 
   useEffect(() => {
-    let filtered = [...applications]
-
-    // Apply search filter
-    if (searchQuery.trim() !== "") {
+    if (searchQuery.trim() === "") {
+      setFilteredApplications(applications)
+    } else {
       const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(
+      const filtered = applications.filter(
         (application) =>
           application.first_name.toLowerCase().includes(query) ||
           application.last_name.toLowerCase().includes(query) ||
+          application.email.toLowerCase().includes(query) ||
+          application.phone.includes(query) ||
           application.id.toString().includes(query)
       )
+      setFilteredApplications(filtered)
     }
-
-    // Apply status filter
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((application) => application.status === statusFilter)
-    }
-
-    // Apply average filter
-    if (averageFilter !== "all") {
-      const [min, max] = averageFilter.split("-").map(Number)
-      filtered = filtered.filter((application) => {
-        const avg = application.overall_average
-        return avg >= min && avg <= max
-      })
-    }
-
-    setFilteredApplications(filtered)
-  }, [searchQuery, applications, statusFilter, averageFilter])
+  }, [searchQuery, applications])
 
   const fetchApplications = async () => {
     try {
-      const { data, error } = await supabase.from("applications").select("*").order("created_at", { ascending: false })
+      const { data, error } = await supabase
+        .from("applications")
+        .select("*")
+        .order("created_at", { ascending: false })
 
       if (error) {
         throw error
@@ -165,84 +150,10 @@ export default function AdminApplicationsPage() {
     }
   }
 
-  const requestSort = (key: string) => {
-    let direction: 'ascending' | 'descending' = 'ascending'
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
-      direction = 'descending'
-    }
-    setSortConfig({ key, direction })
-  }
-
-  const getSortedApplications = (apps: any[]) => {
-    if (!sortConfig) return apps
-
-    return [...apps].sort((a, b) => {
-      // Handle different sort keys
-      let valueA, valueB
-
-      switch (sortConfig.key) {
-        case 'studentNo':
-          valueA = a.id
-          valueB = b.id
-          break
-        case 'firstName':
-          valueA = a.first_name
-          valueB = b.first_name
-          break
-        case 'lastName':
-          valueA = a.last_name
-          valueB = b.last_name
-          break
-        case 'term3Avg':
-          valueA = a.term3_average || 0
-          valueB = b.term3_average || 0
-          break
-        case 'term4Avg':
-          valueA = a.term4_average || 0
-          valueB = b.term4_average || 0
-          break
-        case 'overallAvg':
-          valueA = a.overall_average || 0
-          valueB = b.overall_average || 0
-          break
-        case 'date':
-          valueA = new Date(a.created_at)
-          valueB = new Date(b.created_at)
-          break
-        case 'status':
-          valueA = a.status
-          valueB = b.status
-          break
-        default:
-          return 0
-      }
-
-      if (valueA < valueB) {
-        return sortConfig.direction === 'ascending' ? -1 : 1
-      }
-      if (valueA > valueB) {
-        return sortConfig.direction === 'ascending' ? 1 : -1
-      }
-      return 0
-    })
-  }
-
   // Filter applications by status after search
-  const pendingApplications = getSortedApplications(filteredApplications.filter((app) => app.status === "pending"))
-  const approvedApplications = getSortedApplications(filteredApplications.filter((app) => app.status === "approved"))
-  const rejectedApplications = getSortedApplications(filteredApplications.filter((app) => app.status === "rejected"))
-  const allApplications = getSortedApplications(filteredApplications)
-
-  const SortIcon = ({ columnKey }: { columnKey: string }) => {
-    if (!sortConfig || sortConfig.key !== columnKey) {
-      return <ChevronUp className="h-4 w-4 opacity-0" />
-    }
-    return sortConfig.direction === 'ascending' ? (
-      <ChevronUp className="h-4 w-4" />
-    ) : (
-      <ChevronDown className="h-4 w-4" />
-    )
-  }
+  const pendingApplications = filteredApplications.filter((app) => app.status === "pending")
+  const approvedApplications = filteredApplications.filter((app) => app.status === "approved")
+  const rejectedApplications = filteredApplications.filter((app) => app.status === "rejected")
 
   if (isLoading) {
     return (
@@ -290,43 +201,14 @@ export default function AdminApplicationsPage() {
 
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="relative col-span-1 md:col-span-2">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                <Input
-                  className="pl-10"
-                  placeholder="Search students by name or ID..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={averageFilter} onValueChange={setAverageFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filter by average" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Averages</SelectItem>
-                  <SelectItem value="0-49">Below 50%</SelectItem>
-                  <SelectItem value="50-59">50-59%</SelectItem>
-                  <SelectItem value="60-69">60-69%</SelectItem>
-                  <SelectItem value="70-79">70-79%</SelectItem>
-                  <SelectItem value="80-89">80-89%</SelectItem>
-                  <SelectItem value="90-100">90-100%</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+              <Input
+                className="pl-10"
+                placeholder="Search students by name, ID, or email..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
           </CardContent>
         </Card>
@@ -342,23 +224,23 @@ export default function AdminApplicationsPage() {
                 <TabsTrigger value="pending">Pending ({pendingApplications.length})</TabsTrigger>
                 <TabsTrigger value="approved">Approved ({approvedApplications.length})</TabsTrigger>
                 <TabsTrigger value="rejected">Rejected ({rejectedApplications.length})</TabsTrigger>
-                <TabsTrigger value="all">All ({allApplications.length})</TabsTrigger>
+                <TabsTrigger value="all">All ({filteredApplications.length})</TabsTrigger>
               </TabsList>
 
               <TabsContent value="pending">
-                {renderApplicationsTable(pendingApplications, handleApprove, handleReject, isProcessing, requestSort, SortIcon)}
+                {renderApplicationsTable(pendingApplications, handleApprove, handleReject, isProcessing)}
               </TabsContent>
 
               <TabsContent value="approved">
-                {renderApplicationsTable(approvedApplications, handleApprove, handleReject, isProcessing, requestSort, SortIcon)}
+                {renderApplicationsTable(approvedApplications, handleApprove, handleReject, isProcessing)}
               </TabsContent>
 
               <TabsContent value="rejected">
-                {renderApplicationsTable(rejectedApplications, handleApprove, handleReject, isProcessing, requestSort, SortIcon)}
+                {renderApplicationsTable(rejectedApplications, handleApprove, handleReject, isProcessing)}
               </TabsContent>
 
               <TabsContent value="all">
-                {renderApplicationsTable(allApplications, handleApprove, handleReject, isProcessing, requestSort, SortIcon)}
+                {renderApplicationsTable(filteredApplications, handleApprove, handleReject, isProcessing)}
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -373,8 +255,6 @@ function renderApplicationsTable(
   handleApprove: (id: number) => void,
   handleReject: (id: number) => void,
   isProcessing: number | null,
-  requestSort?: (key: string) => void,
-  SortIcon?: ({ columnKey }: { columnKey: string }) => JSX.Element
 ) {
   if (applications.length === 0) {
     return <div className="text-center py-8 text-gray-500">No applications found</div>
@@ -385,90 +265,37 @@ function renderApplicationsTable(
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-b">
-            <th 
-              className="py-3 px-4 text-left cursor-pointer hover:bg-gray-50" 
-              onClick={() => requestSort && requestSort('studentNo')}
-            >
-              <div className="flex items-center">
-                Student No.
-                {SortIcon && <SortIcon columnKey="studentNo" />}
-              </div>
-            </th>
-            <th 
-              className="py-3 px-4 text-left cursor-pointer hover:bg-gray-50"
-              onClick={() => requestSort && requestSort('firstName')}
-            >
-              <div className="flex items-center">
-                First Name
-                {SortIcon && <SortIcon columnKey="firstName" />}
-              </div>
-            </th>
-            <th 
-              className="py-3 px-4 text-left cursor-pointer hover:bg-gray-50"
-              onClick={() => requestSort && requestSort('lastName')}
-            >
-              <div className="flex items-center">
-                Last Name
-                {SortIcon && <SortIcon columnKey="lastName" />}
-              </div>
-            </th>
-            <th 
-              className="py-3 px-4 text-left cursor-pointer hover:bg-gray-50"
-              onClick={() => requestSort && requestSort('term3Avg')}
-            >
-              <div className="flex items-center">
-                Term 3 Avg
-                {SortIcon && <SortIcon columnKey="term3Avg" />}
-              </div>
-            </th>
-            <th 
-              className="py-3 px-4 text-left cursor-pointer hover:bg-gray-50"
-              onClick={() => requestSort && requestSort('term4Avg')}
-            >
-              <div className="flex items-center">
-                Term 4 Avg
-                {SortIcon && <SortIcon columnKey="term4Avg" />}
-              </div>
-            </th>
-            <th 
-              className="py-3 px-4 text-left cursor-pointer hover:bg-gray-50"
-              onClick={() => requestSort && requestSort('overallAvg')}
-            >
-              <div className="flex items-center">
-                Overall Avg
-                {SortIcon && <SortIcon columnKey="overallAvg" />}
-              </div>
-            </th>
-            <th 
-              className="py-3 px-4 text-left cursor-pointer hover:bg-gray-50"
-              onClick={() => requestSort && requestSort('date')}
-            >
-              <div className="flex items-center">
-                Date Applied
-                {SortIcon && <SortIcon columnKey="date" />}
-              </div>
-            </th>
-            <th 
-              className="py-3 px-4 text-left cursor-pointer hover:bg-gray-50"
-              onClick={() => requestSort && requestSort('status')}
-            >
-              <div className="flex items-center">
-                Status
-                {SortIcon && <SortIcon columnKey="status" />}
-              </div>
-            </th>
+            <th className="py-3 px-4 text-left">Name</th>
+            <th className="py-3 px-4 text-left">Email</th>
+            <th className="py-3 px-4 text-left">Phone</th>
+            <th className="py-3 px-4 text-left">Date Applied</th>
+            <th className="py-3 px-4 text-left">Status</th>
             <th className="py-3 px-4 text-left">Actions</th>
           </tr>
         </thead>
         <tbody>
           {applications.map((application) => (
             <tr key={application.id} className="border-b hover:bg-gray-50">
-              <td className="py-3 px-4">{application.id.toString().padStart(5, '0')}</td>
-              <td className="py-3 px-4">{application.first_name}</td>
-              <td className="py-3 px-4">{application.last_name}</td>
-              <td className="py-3 px-4">{application.term3_average ? `${application.term3_average}%` : "N/A"}</td>
-              <td className="py-3 px-4">{application.term4_average ? `${application.term4_average}%` : "N/A"}</td>
-              <td className="py-3 px-4">{application.overall_average ? `${application.overall_average}%` : "N/A"}</td>
+              <td className="py-3 px-4">
+                {application.first_name} {application.last_name}
+              </td>
+
+
+              <td className="py-3 px-4"> {application.email ? ( <a   href={`mailto:${application.email.replace(/^mailto:/i, '').trim()}`} className="text-black-600 hover:underline" > {application.email.replace(/^mailto:/i, '').trim()}
+              </a>
+               ) : (
+               'N/A' )}
+              </td>
+              <td className="py-3 px-4">
+                 {application.phone ? (
+               <a href={`tel:${application.phone.replace(/[^\d+]/g, '').replace(/^\+?/, '+')}`} className="text-black-600 hover:underline" >
+                {application.phone}
+               </a>
+               ) : (
+                'N/A'
+              )} </td>
+
+
               <td className="py-3 px-4">{new Date(application.created_at).toLocaleDateString()}</td>
               <td className="py-3 px-4">
                 <Badge
@@ -488,7 +315,7 @@ function renderApplicationsTable(
                   <Button
                     variant="outline"
                     size="sm"
-                    className="text-blue-600 border-blue-600 hover:bg-blue-50"
+                    className="text-blue-600 border-blue-600 hover:bg-blue-50" // Blue View button
                     asChild
                   >
                     <Link href={`/admin/applications/${application.id}`}>

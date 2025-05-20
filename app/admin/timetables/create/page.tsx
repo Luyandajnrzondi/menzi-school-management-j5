@@ -34,11 +34,8 @@ export default function CreateTimetablePage() {
   const [classes, setClasses] = useState<any[]>([])
   const [subjects, setSubjects] = useState<any[]>([])
   const [teachers, setTeachers] = useState<any[]>([])
-  const [subjectTeachers, setSubjectTeachers] = useState<Record<string, any[]>>({})
-  const [selectedClass, setSelectedClass] = useState<any>(null)
   const [timetable, setTimetable] = useState<any>({})
   const [activeDay, setActiveDay] = useState("Monday")
-  const [existingTimetable, setExistingTimetable] = useState<any>(null)
 
   const form = useForm<z.infer<typeof timetableSchema>>({
     resolver: zodResolver(timetableSchema),
@@ -95,41 +92,17 @@ export default function CreateTimetablePage() {
 
       if (subjectsError) throw subjectsError
 
-      // Fetch teachers with their subjects
-      const { data: teachersWithSubjects, error: teachersError } = await supabase
+      // Fetch teachers
+      const { data: teachersData, error: teachersError } = await supabase
         .from("teachers")
-        .select(`
-          id,
-          first_name,
-          last_name,
-          teacher_subjects(subject_id)
-        `)
+        .select("*")
         .order("last_name", { ascending: true })
 
       if (teachersError) throw teachersError
 
-      // Create a mapping of subject_id to teachers who teach it
-      const subjectTeachersMap: Record<string, any[]> = {}
-
-      teachersWithSubjects.forEach((teacher) => {
-        const teacherSubjects = teacher.teacher_subjects.map((ts: any) => ts.subject_id.toString())
-
-        teacherSubjects.forEach((subjectId: string) => {
-          if (!subjectTeachersMap[subjectId]) {
-            subjectTeachersMap[subjectId] = []
-          }
-
-          subjectTeachersMap[subjectId].push({
-            id: teacher.id,
-            name: `${teacher.first_name} ${teacher.last_name}`,
-          })
-        })
-      })
-
       setClasses(classesData || [])
       setSubjects(subjectsData || [])
-      setTeachers(teachersWithSubjects || [])
-      setSubjectTeachers(subjectTeachersMap)
+      setTeachers(teachersData || [])
 
       // Initialize empty timetable
       const initialTimetable: any = {}
@@ -152,74 +125,17 @@ export default function CreateTimetablePage() {
     }
   }
 
-  const handleClassChange = async (classId: string) => {
-    form.setValue("class_id", classId)
-
-    const selectedClass = classes.find((c) => c.id.toString() === classId)
-    setSelectedClass(selectedClass)
-
-    // Check if timetable already exists for this class, year and term
-    try {
-      const { data, error } = await supabase
-        .from("timetables")
-        .select("*")
-        .eq("class_id", classId)
-        .eq("academic_year", form.getValues("academic_year"))
-        .eq("term", form.getValues("term"))
-        .single()
-
-      if (error && error.code !== "PGSQL_ERROR") {
-        console.error("Error checking existing timetable:", error)
-      }
-
-      if (data) {
-        setExistingTimetable(data)
-        setTimetable(data.schedule || {})
-        toast({
-          title: "Existing Timetable Found",
-          description: "You are now editing an existing timetable.",
-        })
-      } else {
-        // Reset to empty timetable
-        const initialTimetable: any = {}
-        weekdays.forEach((day) => {
-          initialTimetable[day] = {}
-          periods.forEach((period) => {
-            initialTimetable[day][period] = { subject_id: "", teacher_id: "" }
-          })
-        })
-        setTimetable(initialTimetable)
-        setExistingTimetable(null)
-      }
-    } catch (error) {
-      console.error("Error checking existing timetable:", error)
-    }
-  }
-
   const handleTimetableChange = (day: string, period: number, field: string, value: string) => {
-    setTimetable((prev: any) => {
-      const newTimetable = { ...prev }
-
-      if (!newTimetable[day]) {
-        newTimetable[day] = {}
-      }
-
-      if (!newTimetable[day][period]) {
-        newTimetable[day][period] = { subject_id: "", teacher_id: "" }
-      }
-
-      // If changing subject, reset teacher
-      if (field === "subject_id") {
-        newTimetable[day][period] = {
-          subject_id: value,
-          teacher_id: "",
-        }
-      } else {
-        newTimetable[day][period][field] = value
-      }
-
-      return newTimetable
-    })
+    setTimetable((prev: any) => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        [period]: {
+          ...prev[day][period],
+          [field]: value,
+        },
+      },
+    }))
   }
 
   const onSubmit = async (data: z.infer<typeof timetableSchema>) => {
@@ -246,7 +162,7 @@ export default function CreateTimetablePage() {
           .from("timetables")
           .update({
             schedule: timetable,
-            updated_at: new Date().toISOString(),
+            updated_at: new Date(),
           })
           .eq("id", timetableId)
 
@@ -260,8 +176,6 @@ export default function CreateTimetablePage() {
             academic_year: Number.parseInt(data.academic_year),
             term: Number.parseInt(data.term),
             schedule: timetable,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
           })
           .select("id")
           .single()
@@ -279,7 +193,6 @@ export default function CreateTimetablePage() {
         message: `A new timetable has been created for ${className} for Term ${data.term}, ${data.academic_year}.`,
         notification_type: "timetable",
         is_read: false,
-        created_at: new Date().toISOString(),
       })
 
       toast({
@@ -300,11 +213,6 @@ export default function CreateTimetablePage() {
     }
   }
 
-  const getTeachersForSubject = (subjectId: string) => {
-    if (!subjectId || subjectId === "none") return []
-    return subjectTeachers[subjectId] || []
-  }
-
   if (isLoading) {
     return (
       <DashboardLayout user={user}>
@@ -319,7 +227,7 @@ export default function CreateTimetablePage() {
     <DashboardLayout user={user}>
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">{existingTimetable ? "Edit Timetable" : "Create Timetable"}</h1>
+          <h1 className="text-2xl font-bold">Create Timetable</h1>
         </div>
 
         <Form {...form}>
@@ -337,7 +245,7 @@ export default function CreateTimetablePage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Class</FormLabel>
-                        <Select onValueChange={(value) => handleClassChange(value)} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select a class" />
@@ -429,7 +337,7 @@ export default function CreateTimetablePage() {
                                 <td className="py-2 px-4 border font-medium">Period {period}</td>
                                 <td className="py-2 px-4 border">
                                   <Select
-                                    value={timetable[day]?.[period]?.subject_id || ""}
+                                    value={timetable[day][period].subject_id || ""}
                                     onValueChange={(value) => handleTimetableChange(day, period, "subject_id", value)}
                                   >
                                     <SelectTrigger>
@@ -439,7 +347,7 @@ export default function CreateTimetablePage() {
                                       <SelectItem value="none">None (Break/Free Period)</SelectItem>
                                       {subjects.map((subject) => (
                                         <SelectItem key={subject.id} value={subject.id.toString()}>
-                                          {subject.name} {subject.subject_code ? `(${subject.subject_code})` : ""}
+                                          {subject.name}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
@@ -447,27 +355,19 @@ export default function CreateTimetablePage() {
                                 </td>
                                 <td className="py-2 px-4 border">
                                   <Select
-                                    value={timetable[day]?.[period]?.teacher_id || ""}
+                                    value={timetable[day][period].teacher_id || ""}
                                     onValueChange={(value) => handleTimetableChange(day, period, "teacher_id", value)}
-                                    disabled={
-                                      !timetable[day]?.[period]?.subject_id ||
-                                      timetable[day]?.[period]?.subject_id === "none"
-                                    }
+                                    disabled={!timetable[day][period].subject_id}
                                   >
                                     <SelectTrigger>
                                       <SelectValue placeholder="Select a teacher" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {getTeachersForSubject(timetable[day]?.[period]?.subject_id).map((teacher) => (
+                                      {teachers.map((teacher) => (
                                         <SelectItem key={teacher.id} value={teacher.id.toString()}>
-                                          {teacher.name}
+                                          {teacher.first_name} {teacher.last_name}
                                         </SelectItem>
                                       ))}
-                                      {getTeachersForSubject(timetable[day]?.[period]?.subject_id).length === 0 && (
-                                        <SelectItem value="" disabled>
-                                          No teachers available for this subject
-                                        </SelectItem>
-                                      )}
                                     </SelectContent>
                                   </Select>
                                 </td>
@@ -488,7 +388,7 @@ export default function CreateTimetablePage() {
               </Button>
               <Button type="submit" disabled={isSaving}>
                 {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                {existingTimetable ? "Update Timetable" : "Save Timetable"}
+                Save Timetable
               </Button>
             </div>
           </form>

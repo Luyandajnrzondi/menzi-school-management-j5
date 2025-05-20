@@ -15,18 +15,15 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Loader2, Save, ArrowLeft } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
 import { useToast } from "@/components/ui/use-toast"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-// Form validation schema
 const teacherSchema = z.object({
   first_name: z.string().min(2, { message: "First name must be at least 2 characters." }),
   last_name: z.string().min(2, { message: "Last name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-  phone: z.string().optional(),
+  phone: z.string().min(10, { message: "Phone number must be at least 10 digits." }).optional(),
   address: z.string().optional(),
   profile_image_url: z.string().optional(),
   subjects: z.array(z.string()).optional(),
-  assigned_class_id: z.string().optional(),
 })
 
 export default function EditTeacherPage() {
@@ -37,8 +34,7 @@ export default function EditTeacherPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [subjects, setSubjects] = useState<any[]>([])
-  const [teacherData, setTeacherData] = useState<any>(null)
-  const [classes, setClasses] = useState<any[]>([])
+  const [teacherSubjects, setTeacherSubjects] = useState<string[]>([])
 
   const form = useForm<z.infer<typeof teacherSchema>>({
     resolver: zodResolver(teacherSchema),
@@ -50,7 +46,6 @@ export default function EditTeacherPage() {
       address: "",
       profile_image_url: "",
       subjects: [],
-      assigned_class_id: "",
     },
   })
 
@@ -80,7 +75,7 @@ export default function EditTeacherPage() {
       const teacherId = params.id
 
       // Fetch teacher details
-      const { data: teacher, error: teacherError } = await supabase
+      const { data: teacherData, error: teacherError } = await supabase
         .from("teachers")
         .select(`
           *,
@@ -90,8 +85,6 @@ export default function EditTeacherPage() {
         .single()
 
       if (teacherError) throw teacherError
-
-      setTeacherData(teacher)
 
       // Fetch all subjects
       const { data: subjectsData, error: subjectsError } = await supabase
@@ -111,41 +104,19 @@ export default function EditTeacherPage() {
 
       const subjectIds = teacherSubjectsData?.map((item) => item.subject_id.toString()) || []
 
-      // Fetch classes
-      const { data: classesData, error: classesError } = await supabase
-        .from("classes")
-        .select(`
-          id,
-          name,
-          grade_id,
-          grades(name)
-        `)
-        .order("grade_id", { ascending: true })
-        .order("name", { ascending: true })
-
-      if (classesError) throw classesError
-      setClasses(classesData || [])
-
-      // Get the teacher's assigned class
-      const { data: teacherClassData, error: teacherClassError } = await supabase
-        .from("classes")
-        .select("id")
-        .eq("teacher_id", teacherId)
-        .single()
-
       // Set form values
       form.reset({
-        first_name: teacher.first_name,
-        last_name: teacher.last_name,
-        email: teacher.users?.email || "",
-        phone: teacher.phone || "",
-        address: teacher.address || "",
-        profile_image_url: teacher.profile_image_url || "",
+        first_name: teacherData.first_name,
+        last_name: teacherData.last_name,
+        email: teacherData.users?.email,
+        phone: teacherData.phone || "",
+        address: teacherData.address || "",
+        profile_image_url: teacherData.profile_image_url || "",
         subjects: subjectIds,
-        assigned_class_id: teacherClassData?.id?.toString() || "",
       })
 
       setSubjects(subjectsData || [])
+      setTeacherSubjects(subjectIds)
     } catch (error) {
       console.error("Error fetching data:", error)
       toast({
@@ -153,7 +124,6 @@ export default function EditTeacherPage() {
         description: "Failed to load teacher data. Please try again.",
         variant: "destructive",
       })
-      router.push("/admin/teachers")
     } finally {
       setIsLoading(false)
     }
@@ -173,24 +143,31 @@ export default function EditTeacherPage() {
           phone: data.phone || null,
           address: data.address || null,
           profile_image_url: data.profile_image_url || null,
-          updated_at: new Date().toISOString(),
+          updated_at: new Date(),
         })
         .eq("id", teacherId)
 
       if (updateTeacherError) throw updateTeacherError
 
-      // Update user email if it has changed
-      if (teacherData && teacherData.users && teacherData.users.email !== data.email) {
-        const { error: updateUserError } = await supabase
-          .from("users")
-          .update({
-            email: data.email,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", teacherData.user_id)
+      // Get user_id for this teacher
+      const { data: teacherData, error: teacherError } = await supabase
+        .from("teachers")
+        .select("user_id")
+        .eq("id", teacherId)
+        .single()
 
-        if (updateUserError) throw updateUserError
-      }
+      if (teacherError) throw teacherError
+
+      // Update user email
+      const { error: updateUserError } = await supabase
+        .from("users")
+        .update({
+          email: data.email,
+          updated_at: new Date(),
+        })
+        .eq("id", teacherData.user_id)
+
+      if (updateUserError) throw updateUserError
 
       // Update teacher subjects
       // First, remove all existing subject associations
@@ -204,49 +181,14 @@ export default function EditTeacherPage() {
       // Then add the new subject associations
       if (data.subjects && data.subjects.length > 0) {
         const subjectInserts = data.subjects.map((subjectId) => ({
-          teacher_id: Number(teacherId),
-          subject_id: Number(subjectId),
+          teacher_id: Number.parseInt(teacherId as string),
+          subject_id: Number.parseInt(subjectId),
         }))
 
         const { error: insertSubjectsError } = await supabase.from("teacher_subjects").insert(subjectInserts)
 
         if (insertSubjectsError) throw insertSubjectsError
       }
-
-      // Update class assignment
-      if (data.assigned_class_id && data.assigned_class_id !== "none") {
-        // First, remove teacher from any existing class
-        const { error: updateClassError1 } = await supabase
-          .from("classes")
-          .update({ teacher_id: null })
-          .eq("teacher_id", teacherId)
-
-        if (updateClassError1) throw updateClassError1
-
-        // Then assign to the new class
-        const { error: updateClassError2 } = await supabase
-          .from("classes")
-          .update({ teacher_id: Number(teacherId) })
-          .eq("id", data.assigned_class_id)
-
-        if (updateClassError2) throw updateClassError2
-      } else {
-        // Remove teacher from any existing class
-        const { error: updateClassError } = await supabase
-          .from("classes")
-          .update({ teacher_id: null })
-          .eq("teacher_id", teacherId)
-
-        if (updateClassError) throw updateClassError
-      }
-
-      // Create notification
-      await supabase.from("notifications").insert({
-        title: "Teacher Information Updated",
-        message: `${data.first_name} ${data.last_name}'s information has been updated.`,
-        notification_type: "teacher",
-        is_read: false,
-      })
 
       toast({
         title: "Success",
@@ -380,33 +322,6 @@ export default function EditTeacherPage() {
                     </FormItem>
                   )}
                 />
-
-                <FormField
-                  control={form.control}
-                  name="assigned_class_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Assigned Class (Class Teacher)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "none"}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a class" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {classes.map((classItem) => (
-                            <SelectItem key={classItem.id} value={classItem.id.toString()}>
-                              {classItem.grades?.name} {classItem.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>Assign this teacher as the main class teacher</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </CardContent>
             </Card>
 
@@ -442,7 +357,7 @@ export default function EditTeacherPage() {
                                       checked={field.value?.includes(subject.id.toString())}
                                       onCheckedChange={(checked) => {
                                         return checked
-                                          ? field.onChange([...(field.value || []), subject.id.toString()])
+                                          ? field.onChange([...field.value, subject.id.toString()])
                                           : field.onChange(
                                               field.value?.filter((value) => value !== subject.id.toString()),
                                             )

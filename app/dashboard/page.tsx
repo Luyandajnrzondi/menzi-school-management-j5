@@ -4,8 +4,6 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import Link from "next/link"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -37,9 +35,6 @@ export default function DashboardPage() {
           <Card className="bg-white p-6 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-2">Welcome, {user?.name}</h2>
             <p className="text-gray-600">This is your dashboard. You can manage your school activities from here.</p>
-            <Button className="mt-2" asChild>
-              <Link href="/apply">Apply Here</Link>
-            </Button>
           </Card>
 
           <Card className="bg-white p-6 rounded-lg shadow">

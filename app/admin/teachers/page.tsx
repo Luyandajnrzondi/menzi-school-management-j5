@@ -92,38 +92,10 @@ export default function AdminTeachersPage() {
     }
 
     try {
-      // First, get the user_id associated with this teacher
-      const { data: teacherData, error: teacherError } = await supabase
-        .from("teachers")
-        .select("user_id")
-        .eq("id", id)
-        .single()
+      const { error } = await supabase.from("teachers").delete().eq("id", id)
 
-      if (teacherError) throw teacherError
-
-      // Remove teacher from any classes
-      const { error: updateClassError } = await supabase
-        .from("classes")
-        .update({ teacher_id: null })
-        .eq("teacher_id", id)
-
-      if (updateClassError) throw updateClassError
-
-      // Delete teacher's subject associations
-      const { error: deleteSubjectsError } = await supabase.from("teacher_subjects").delete().eq("teacher_id", id)
-
-      if (deleteSubjectsError) throw deleteSubjectsError
-
-      // Delete the teacher record
-      const { error: deleteTeacherError } = await supabase.from("teachers").delete().eq("id", id)
-
-      if (deleteTeacherError) throw deleteTeacherError
-
-      // Delete the user account
-      if (teacherData?.user_id) {
-        const { error: deleteUserError } = await supabase.from("users").delete().eq("id", teacherData.user_id)
-
-        if (deleteUserError) throw deleteUserError
+      if (error) {
+        throw error
       }
 
       toast({

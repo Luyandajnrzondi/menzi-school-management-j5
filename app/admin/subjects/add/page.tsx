@@ -18,7 +18,6 @@ import { useToast } from "@/components/ui/use-toast"
 
 const subjectSchema = z.object({
   name: z.string().min(1, { message: "Please enter a subject name" }),
-  subject_code: z.string().min(1, { message: "Please enter a subject code" }),
   description: z.string().optional(),
   is_compulsory: z.boolean().default(false),
 })
@@ -34,7 +33,6 @@ export default function AddSubjectPage() {
     resolver: zodResolver(subjectSchema),
     defaultValues: {
       name: "",
-      subject_code: "",
       description: "",
       is_compulsory: false,
     },
@@ -64,68 +62,39 @@ export default function AddSubjectPage() {
   const onSubmit = async (data: z.infer<typeof subjectSchema>) => {
     setIsSaving(true)
     try {
-      console.log("Submitting subject data:", data)
-
       // Check if subject already exists
-      const { data: existingSubjects, error: checkError } = await supabase
+      const { count, error: checkError } = await supabase
         .from("subjects")
-        .select("*")
-        .or(`name.eq.${data.name},subject_code.eq.${data.subject_code}`)
+        .select("*", { count: "exact", head: true })
+        .eq("name", data.name)
 
-      if (checkError) {
-        console.error("Error checking existing subjects:", checkError)
-        throw checkError
-      }
+      if (checkError) throw checkError
 
-      if (existingSubjects && existingSubjects.length > 0) {
-        const nameExists = existingSubjects.some((s) => s.name === data.name)
-        const codeExists = existingSubjects.some((s) => s.subject_code === data.subject_code)
-
-        if (nameExists) {
-          toast({
-            title: "Subject Already Exists",
-            description: "A subject with this name already exists.",
-            variant: "destructive",
-          })
-        } else if (codeExists) {
-          toast({
-            title: "Subject Code Already Exists",
-            description: "A subject with this code already exists.",
-            variant: "destructive",
-          })
-        }
-
+      if (count && count > 0) {
+        toast({
+          title: "Subject Already Exists",
+          description: "A subject with this name already exists.",
+          variant: "destructive",
+        })
         setIsSaving(false)
         return
       }
 
       // Create new subject
-      const { data: newSubject, error: insertError } = await supabase
-        .from("subjects")
-        .insert({
-          name: data.name,
-          subject_code: data.subject_code,
-          description: data.description || null,
-          is_compulsory: data.is_compulsory,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .select()
+      const { error: insertError } = await supabase.from("subjects").insert({
+        name: data.name,
+        description: data.description || null,
+        is_compulsory: data.is_compulsory,
+      })
 
-      if (insertError) {
-        console.error("Error inserting subject:", insertError)
-        throw insertError
-      }
-
-      console.log("Subject created successfully:", newSubject)
+      if (insertError) throw insertError
 
       // Create notification
       await supabase.from("notifications").insert({
         title: "New Subject Added",
-        message: `A new subject "${data.name}" (${data.subject_code}) has been added to the curriculum.`,
+        message: `A new subject "${data.name}" has been added to the curriculum.`,
         notification_type: "subject",
         is_read: false,
-        created_at: new Date().toISOString(),
       })
 
       toast({
@@ -180,21 +149,6 @@ export default function AddSubjectPage() {
                       <FormControl>
                         <Input placeholder="e.g. Mathematics, English, Science" {...field} />
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="subject_code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Subject Code</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g. MATH101, ENG101, SCI101" {...field} />
-                      </FormControl>
-                      <FormDescription>Enter a unique code for this subject</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
